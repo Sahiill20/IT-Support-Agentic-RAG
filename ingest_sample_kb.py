@@ -12,6 +12,6 @@ all_docs = []
 
 for path in files:
     all_docs.extend(load_file(path))
-chunks = chunk_documents(all_docs)
-ids = add_docs(chunks)
+    chunks = chunk_documents(all_docs)
+    ids = add_docs(chunks)
 print(f"Indexed {len(files)} files -> {len(chunks)} chunks -> {len(ids)} Pinecone vectors")
