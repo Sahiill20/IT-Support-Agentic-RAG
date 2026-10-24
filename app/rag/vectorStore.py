@@ -2,7 +2,8 @@ import time
 import os
 from pinecone import Pinecone, ServerlessSpec
 from langchain_pinecone import PineconeVectorStore
-from langchain_huggingface import HuggingFaceEmbeddings
+from gradio_client import Client
+from langchain_core.embeddings import Embeddings
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -30,15 +31,90 @@ def get_embedding_dimensions(model_name: str | None = None) -> int:
         "Add the matching dimension to embedding_dimensions"
     )
 
+
+class HuggingFaceSpaceEmbeddings(Embeddings):
+    def __init__(
+        self,
+        space_id: str,
+        token: str,
+        dimension: int = 384,
+        batch_size: int = 32,
+    ):
+        if not token:
+            raise RuntimeError("HUGGINGFACEHUB_API_TOKEN is missing")
+
+        self.client = Client(
+            space_id,
+            token=token,
+            verbose=False,
+        )
+        self.dimension = dimension
+        self.batch_size = batch_size
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        try:
+            result = self.client.predict(
+                texts,
+                api_name="/embed",
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Hugging Face embedding Space request failed. "
+                "Check the Space status, token permissions, and ZeroGPU quota."
+            ) from exc
+
+        # A single Gradio output normally returns its value directly.
+        if isinstance(result, tuple) and len(result) == 1:
+            result = result[0]
+
+        if not isinstance(result, list) or len(result) != len(texts):
+            raise RuntimeError(
+                "Unexpected embedding response from Hugging Face Space"
+            )
+
+        vectors = []
+
+        for vector in result:
+            if not isinstance(vector, (list, tuple)):
+                raise RuntimeError("Invalid embedding vector returned")
+
+            if len(vector) != self.dimension:
+                raise RuntimeError(
+                    f"Expected {self.dimension} dimensions, "
+                    f"received {len(vector)}"
+                )
+
+            vectors.append([float(value) for value in vector])
+
+        return vectors
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors = []
+
+        for start in range(0, len(texts), self.batch_size):
+            batch = texts[start : start + self.batch_size]
+            vectors.extend(self._embed_batch(batch))
+
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed_batch([text])[0]
+
+
 def get_embeddings():
     global embeddings
+
     if embeddings is None:
-        if not settings.HUGGINGFACEHUB_API_TOKEN:
-            raise RuntimeError("HUGGINGFACEHUB_API_TOKEN is missing")
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            encode_kwargs={"normalize_embeddings": True},
-        ) 
+        embeddings = HuggingFaceSpaceEmbeddings(
+            space_id=settings.HUGGINGFACE_SPACE_ID,
+            token=settings.HUGGINGFACEHUB_API_TOKEN,
+            dimension=384,
+            batch_size=32,
+        )
+
     return embeddings
 
 

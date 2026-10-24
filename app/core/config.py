@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     app_name: str = "IT Support Agentic RAG"
     app_env: str = "development"
+    HUGGINGFACE_SPACE_ID: str = "Sahil-22/agentic-rag"
     Groq_API_KEY: str = ""
     HUGGINGFACEHUB_API_TOKEN: str = ""
     tavily_API_KEY: str = ""
